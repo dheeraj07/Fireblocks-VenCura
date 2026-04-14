@@ -1,0 +1,1127 @@
+openapi: 3.0.3
+info:
+  title: Wallet API
+  version: 0.1.0
+  description: >
+    Local wallet API for auth, local HD accounts, balances, signing, transfers,
+    transaction history, account sharing, policies, and shared spend approvals.
+servers:
+  - url: /api
+    description: Frontend proxy to the API
+  - url: https://testfire-production.up.railway.app
+    description: Production API server (use with Insomnia/curl)
+tags:
+  - name: Health
+  - name: Tokens
+  - name: Auth
+  - name: Policies
+  - name: Accounts
+  - name: Account Sharing
+  - name: Shared Spend
+  - name: Transactions
+  - name: Webhooks
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: API is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /v1/tokens:
+    get:
+      tags: [Tokens]
+      summary: List supported ERC-20 tokens with on-chain metadata
+      security: []
+      responses:
+        "200":
+          description: Supported token list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tokens]
+                properties:
+                  tokens:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TokenInfo"
+
+  /v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a user and create their default HD account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthRequest"
+      responses:
+        "201":
+          description: Registered user and bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/AppError"
+
+  /v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login and receive a bearer token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthRequest"
+      responses:
+        "200":
+          description: Authenticated user and bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AppError"
+
+  /v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Return the authenticated user
+      responses:
+        "200":
+          description: Current user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/AppError"
+
+  /v1/policies:
+    post:
+      tags: [Policies]
+      summary: Create an account policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePolicyRequest"
+      responses:
+        "201":
+          description: Created policy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Policy"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/AppError"
+    get:
+      tags: [Policies]
+      summary: List policies owned by the authenticated user
+      responses:
+        "200":
+          description: User policies.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [policies]
+                properties:
+                  policies:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Policy"
+        "401":
+          $ref: "#/components/responses/AppError"
+
+  /v1/policies/{policyId}/update:
+    post:
+      tags: [Policies]
+      summary: Update a policy
+      parameters:
+        - $ref: "#/components/parameters/PolicyId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePolicyRequest"
+      responses:
+        "200":
+          description: Updated policy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Policy"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/AppError"
+
+  /v1/accounts:
+    get:
+      tags: [Accounts]
+      summary: List owned and shared HD accounts
+      responses:
+        "200":
+          description: Owned and active shared accounts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accounts]
+                properties:
+                  accounts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Account"
+        "401":
+          $ref: "#/components/responses/AppError"
+    post:
+      tags: [Accounts]
+      summary: Derive a named account under the user's HD root
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                  example: Trading
+      responses:
+        "201":
+          description: Created account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/AppError"
+
+  /v1/accounts/{accountId}/balances:
+    get:
+      tags: [Accounts]
+      summary: Read native and allowlisted ERC-20 balances for an owned account
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: Account balances.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accountId, balances]
+                properties:
+                  accountId:
+                    type: string
+                    format: uuid
+                  balances:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Balance"
+        "404":
+          $ref: "#/components/responses/AppError"
+
+  /v1/accounts/{accountId}/sign-message:
+    post:
+      tags: [Accounts]
+      summary: Sign a message with an owned HD account
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignMessageRequest"
+      responses:
+        "200":
+          description: Signature result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignMessageResponse"
+        "409":
+          $ref: "#/components/responses/AppError"
+
+  /v1/accounts/{accountId}/send-transaction:
+    post:
+      tags: [Accounts]
+      summary: Send native ETH or ERC-20 tokens from an owned HD account
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendTransactionRequest"
+      responses:
+        "200":
+          description: Broadcasted transaction.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendTransactionResponse"
+        "400":
+          $ref: "#/components/responses/AppError"
+        "409":
+          $ref: "#/components/responses/AppError"
+
+  /v1/accounts/{accountId}/transactions:
+    get:
+      tags: [Accounts, Transactions]
+      summary: List transaction history for one owned account
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Account transaction history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionHistoryResponse"
+        "404":
+          $ref: "#/components/responses/AppError"
+
+  /v1/accounts/{accountId}/shares:
+    post:
+      tags: [Account Sharing]
+      summary: Share an owned account with another existing user
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateShareRequest"
+      responses:
+        "201":
+          description: Created share.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountShare"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/AppError"
+        "409":
+          $ref: "#/components/responses/AppError"
+    get:
+      tags: [Account Sharing]
+      summary: List shares for an owned account
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: Shares for the selected account.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [shares]
+                properties:
+                  shares:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AccountShare"
+        "404":
+          $ref: "#/components/responses/AppError"
+
+  /v1/accounts/{accountId}/shares/{shareId}/update:
+    post:
+      tags: [Account Sharing]
+      summary: Update account share status or policy assignments
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ShareId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateShareRequest"
+      responses:
+        "200":
+          description: Updated share.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountShare"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/AppError"
+
+  /v1/accounts/{accountId}/shared-spend-requests:
+    post:
+      tags: [Shared Spend]
+      summary: Request a transaction from a shared account
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendTransactionRequest"
+      responses:
+        "200":
+          description: Request executed immediately.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpendRequest"
+        "202":
+          description: Request is pending owner approval.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpendRequest"
+        "403":
+          $ref: "#/components/responses/AppError"
+        "409":
+          $ref: "#/components/responses/AppError"
+
+  /v1/spend-requests:
+    get:
+      tags: [Shared Spend]
+      summary: List spend requests visible to the authenticated user
+      responses:
+        "200":
+          description: Relevant spend requests.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [spendRequests]
+                properties:
+                  spendRequests:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SpendRequest"
+
+  /v1/spend-requests/{spendRequestId}/decision:
+    post:
+      tags: [Shared Spend]
+      summary: Approve or reject a pending shared spend request
+      parameters:
+        - $ref: "#/components/parameters/SpendRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [approve, reject]
+      responses:
+        "200":
+          description: Updated spend request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpendRequest"
+        "404":
+          $ref: "#/components/responses/AppError"
+        "409":
+          $ref: "#/components/responses/AppError"
+
+  /v1/transactions:
+    get:
+      tags: [Transactions]
+      summary: List transaction history for the authenticated user
+      parameters:
+        - name: accountId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Transaction history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionHistoryResponse"
+
+  /v1/transactions/hash/{txHash}:
+    get:
+      tags: [Transactions]
+      summary: Look up a transaction by hash
+      parameters:
+        - name: txHash
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^0x[0-9a-fA-F]{64}$"
+      responses:
+        "200":
+          description: Transaction.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionEvent"
+        "404":
+          $ref: "#/components/responses/AppError"
+
+  /v1/webhooks/alchemy/address-activity:
+    post:
+      tags: [Webhooks]
+      summary: Ingest Alchemy Address Activity webhook events
+      security: []
+      parameters:
+        - name: x-alchemy-signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Ingested events.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/AppError"
+        "503":
+          $ref: "#/components/responses/AppError"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ShareId:
+      name: shareId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SpendRequestId:
+      name: spendRequestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PolicyId:
+      name: policyId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+
+  responses:
+    AppError:
+      description: Application error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ValidationError:
+      description: Request validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    AuthRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: alice@example.com
+        password:
+          type: string
+          minLength: 8
+          example: Password123
+
+    AuthResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+
+    User:
+      type: object
+      required: [id, email]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        createdAt:
+          type: string
+          format: date-time
+
+    NativeAsset:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [native]
+
+    Erc20Asset:
+      type: object
+      required: [type, tokenAddress]
+      properties:
+        type:
+          type: string
+          enum: [erc20]
+        tokenAddress:
+          type: string
+          example: "0x0000000000000000000000000000000000000001"
+
+    Asset:
+      oneOf:
+        - $ref: "#/components/schemas/NativeAsset"
+        - $ref: "#/components/schemas/Erc20Asset"
+      discriminator:
+        propertyName: type
+
+    Balance:
+      type: object
+      required: [asset, raw, formatted, symbol, decimals]
+      properties:
+        asset:
+          $ref: "#/components/schemas/Asset"
+        raw:
+          type: string
+          example: "1000000000000000000"
+        formatted:
+          type: string
+          example: "1.0"
+        symbol:
+          type: string
+          example: ETH
+        decimals:
+          type: integer
+          example: 18
+
+    Account:
+      type: object
+      required:
+        - accountId
+        - walletRootId
+        - userId
+        - name
+        - chainId
+        - accountIndex
+        - derivationPath
+        - address
+        - createdAt
+        - accessType
+        - shareId
+        - policyIds
+      properties:
+        accountId:
+          type: string
+          format: uuid
+        walletRootId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+          description: Owner user id.
+        name:
+          type: string
+        chainId:
+          type: integer
+          example: 31337
+        accountIndex:
+          type: integer
+        derivationPath:
+          type: string
+          example: "m/44'/60'/0'/0/0"
+        address:
+          type: string
+          example: "0x0000000000000000000000000000000000000001"
+        createdAt:
+          type: string
+          format: date-time
+        accessType:
+          type: string
+          enum: [owned, shared]
+        shareId:
+          type: string
+          format: uuid
+          nullable: true
+        policyIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    PolicyRule:
+      type: object
+      required: [asset, autoApproveLimitRaw]
+      properties:
+        asset:
+          $ref: "#/components/schemas/Asset"
+        autoApproveLimitRaw:
+          type: string
+          pattern: "^[0-9]+$"
+          example: "50000000000000000"
+
+    PolicyRules:
+      type: object
+      required: [assetRules]
+      properties:
+        assetRules:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/PolicyRule"
+
+    CreatePolicyRequest:
+      type: object
+      required: [name, rules]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        rules:
+          $ref: "#/components/schemas/PolicyRules"
+
+    UpdatePolicyRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        rules:
+          $ref: "#/components/schemas/PolicyRules"
+
+    Policy:
+      type: object
+      required: [policyId, ownerUserId, name, rules, createdAt, updatedAt]
+      properties:
+        policyId:
+          type: string
+          format: uuid
+        ownerUserId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        rules:
+          $ref: "#/components/schemas/PolicyRules"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateShareRequest:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        policyIds:
+          type: array
+          description: Empty array means full spend access.
+          items:
+            type: string
+            format: uuid
+          default: []
+
+    UpdateShareRequest:
+      type: object
+      minProperties: 1
+      properties:
+        policyIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        status:
+          type: string
+          enum: [active, revoked]
+
+    AccountShare:
+      type: object
+      required:
+        - shareId
+        - accountId
+        - ownerUserId
+        - sharedUserId
+        - status
+        - policyIds
+        - createdAt
+        - updatedAt
+      properties:
+        shareId:
+          type: string
+          format: uuid
+        accountId:
+          type: string
+          format: uuid
+        ownerUserId:
+          type: string
+          format: uuid
+        sharedUserId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, revoked]
+        policyIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    SignMessageRequest:
+      type: object
+      required: [message, idempotencyKey]
+      properties:
+        message:
+          type: string
+          minLength: 1
+          example: I control this account
+        idempotencyKey:
+          type: string
+          minLength: 1
+          maxLength: 255
+
+    SignMessageResponse:
+      type: object
+      required: [requestId, signature]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        signature:
+          type: string
+
+    SendTransactionRequest:
+      type: object
+      required: [to, amount, asset, idempotencyKey]
+      properties:
+        to:
+          type: string
+          example: "0x0000000000000000000000000000000000000001"
+        amount:
+          type: string
+          pattern: "^[0-9]+$"
+          description: Raw unit amount. Native transfers use wei.
+          example: "1000000000000000"
+        asset:
+          $ref: "#/components/schemas/Asset"
+        idempotencyKey:
+          type: string
+          minLength: 1
+          maxLength: 255
+
+    SendTransactionResponse:
+      type: object
+      required: [transactionId, txHash, status]
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+        txHash:
+          type: string
+        status:
+          type: string
+          enum: [broadcasted, confirmed, failed]
+
+    SpendRequest:
+      type: object
+      required:
+        - spendRequestId
+        - shareId
+        - accountId
+        - ownerUserId
+        - requesterUserId
+        - policyIds
+        - asset
+        - toAddress
+        - amountRaw
+        - idempotencyKey
+        - status
+        - decidedByUserId
+        - decidedAt
+        - transactionEventId
+        - txHash
+        - errorCode
+        - createdAt
+        - updatedAt
+      properties:
+        spendRequestId:
+          type: string
+          format: uuid
+        shareId:
+          type: string
+          format: uuid
+        accountId:
+          type: string
+          format: uuid
+        ownerUserId:
+          type: string
+          format: uuid
+        requesterUserId:
+          type: string
+          format: uuid
+        policyIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        asset:
+          $ref: "#/components/schemas/Asset"
+        toAddress:
+          type: string
+        amountRaw:
+          type: string
+        idempotencyKey:
+          type: string
+        status:
+          type: string
+          enum: [pending, rejected, broadcasted, failed]
+        decidedByUserId:
+          type: string
+          format: uuid
+          nullable: true
+        decidedAt:
+          type: string
+          format: date-time
+          nullable: true
+        transactionEventId:
+          type: string
+          format: uuid
+          nullable: true
+        txHash:
+          type: string
+          nullable: true
+        errorCode:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TransactionEvent:
+      type: object
+      required:
+        - eventId
+        - accountId
+        - chainId
+        - network
+        - direction
+        - asset
+        - fromAddress
+        - toAddress
+        - amountRaw
+        - txHash
+        - status
+        - source
+        - createdAt
+        - updatedAt
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        accountId:
+          type: string
+          format: uuid
+        chainId:
+          type: integer
+        network:
+          type: string
+        direction:
+          type: string
+          enum: [incoming, outgoing]
+        asset:
+          $ref: "#/components/schemas/Asset"
+        fromAddress:
+          type: string
+        toAddress:
+          type: string
+        amountRaw:
+          type: string
+        txHash:
+          type: string
+        logIndex:
+          type: string
+          nullable: true
+        nonce:
+          type: string
+          nullable: true
+        blockNumber:
+          type: string
+          nullable: true
+        blockHash:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [broadcasted, confirmed, failed, removed]
+        source:
+          type: string
+          enum: [alchemy_address_activity, api_send]
+        idempotencyKey:
+          type: string
+          nullable: true
+          description: Only present for api_send events.
+        errorCode:
+          type: string
+          nullable: true
+          description: Only present for api_send events.
+        observedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TransactionHistoryResponse:
+      type: object
+      required: [transactions]
+      properties:
+        accountId:
+          type: string
+          format: uuid
+          description: Present when querying a specific account.
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/TransactionEvent"
+
+    TokenInfo:
+      type: object
+      required: [tokenAddress, symbol, decimals]
+      properties:
+        tokenAddress:
+          type: string
+          example: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+        symbol:
+          type: string
+          example: USDC
+        decimals:
+          type: integer
+          example: 6
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              example: VALIDATION_ERROR
+            message:
+              type: string
+            details:
+              nullable: true

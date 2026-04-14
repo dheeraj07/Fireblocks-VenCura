@@ -1,0 +1,169 @@
+Project wallet_api {
+  database_type: 'MySQL'
+  Note: 'HD wallet API with account sharing and spend policies on Ethereum Sepolia.'
+}
+
+Table users {
+  id varchar(36) [pk, note: 'UUID.']
+  email varchar(255) [unique, not null, note: 'Login email.']
+  password_hash text [not null, note: 'Argon2 password hash.']
+  created_at datetime [not null]
+  updated_at datetime [not null]
+
+  Note: 'Authentication and identity.'
+}
+
+Table hd_wallet_roots {
+  id varchar(36) [pk, note: 'Unique root identifier.']
+  user_id varchar(36) [unique, not null, ref: > users.id, note: 'Owner user. One root per user.']
+  custody_type varchar(255) [not null, note: 'Current value: local_hd.']
+  encrypted_root_secret json [not null, note: 'AES-GCM encrypted BIP-39 mnemonic.']
+  next_account_index int [not null, note: 'Next BIP-44 account index to derive.']
+  created_at datetime [not null]
+  updated_at datetime [not null]
+
+  Note: 'One encrypted HD root per user. Child accounts are derived from this root.'
+}
+
+Table wallet_accounts {
+  id varchar(36) [pk, note: 'Account identifier used in account-scoped API routes.']
+  wallet_root_id varchar(36) [not null, ref: > hd_wallet_roots.id, note: 'Parent HD root.']
+  user_id varchar(36) [not null, ref: > users.id, note: 'Account owner.']
+  name varchar(255) [not null, note: 'User-facing account name.']
+  chain_id int [not null, note: 'EVM chain ID.']
+  account_index int [not null, note: 'BIP-44 account index.']
+  derivation_path varchar(255) [not null, note: 'Full derivation path, e.g. m/44\'/60\'/0\'/0/0.']
+  address varchar(255) [not null, note: 'Derived EVM address.']
+  created_at datetime [not null]
+  updated_at datetime [not null]
+
+  indexes {
+    (wallet_root_id, name) [unique]
+    (wallet_root_id, chain_id, account_index) [unique]
+    (wallet_root_id, chain_id, address) [unique]
+  }
+
+  Note: 'HD-derived accounts. Private keys are derived on demand from the encrypted root.'
+}
+
+Table account_policies {
+  id varchar(36) [pk, note: 'Policy identifier.']
+  owner_user_id varchar(36) [not null, ref: > users.id, note: 'User who owns this policy.']
+  name varchar(255) [not null, note: 'Policy name.']
+  rules json [not null, note: 'Asset rules with autoApproveLimitRaw per asset.']
+  created_at datetime [not null]
+  updated_at datetime [not null]
+
+  Note: 'Reusable spend policies owned by users and attached to account shares.'
+}
+
+Table wallet_account_shares {
+  id varchar(36) [pk, note: 'Share identifier.']
+  account_id varchar(36) [not null, ref: > wallet_accounts.id, note: 'Shared account.']
+  owner_user_id varchar(36) [not null, ref: > users.id, note: 'Account owner.']
+  shared_user_id varchar(36) [not null, ref: > users.id, note: 'User receiving access.']
+  status varchar(255) [not null, note: 'active or revoked.']
+  created_at datetime [not null]
+  updated_at datetime [not null]
+
+  indexes {
+    (account_id, shared_user_id) [unique]
+  }
+
+  Note: 'Grants another user spend access to one HD account.'
+}
+
+Table wallet_account_share_policies {
+  share_id varchar(36) [not null, ref: > wallet_account_shares.id, note: 'Share receiving the policy.']
+  policy_id varchar(36) [not null, ref: > account_policies.id, note: 'Attached policy.']
+  created_at datetime [not null]
+
+  indexes {
+    (share_id, policy_id) [pk]
+  }
+
+  Note: 'Join table linking shares to policies. Zero rows means full spend access.'
+}
+
+Table wallet_account_sign_requests {
+  id varchar(36) [pk, note: 'Sign request identifier.']
+  account_id varchar(36) [not null, ref: > wallet_accounts.id, note: 'Account that signed the message.']
+  actor_user_id varchar(36) [not null, ref: > users.id, note: 'User who requested the signature.']
+  message_hash text [not null, note: 'Hash of the signed message.']
+  signature text [not null, note: 'Produced signature.']
+  idempotency_key varchar(255) [not null, note: 'Client idempotency key.']
+  payload_hash varchar(255) [not null, note: 'Hash used to reject mismatched retries.']
+  status varchar(255) [not null, note: 'Current value: completed.']
+  created_at datetime [not null]
+
+  indexes {
+    (account_id, idempotency_key) [unique]
+  }
+
+  Note: 'Idempotent record of message-signing operations on HD accounts.'
+}
+
+Table wallet_account_transaction_events {
+  id varchar(36) [pk, note: 'Event identifier.']
+  account_id varchar(36) [not null, ref: > wallet_accounts.id, note: 'Account involved in the event.']
+  chain_id int [not null, note: 'Chain ID.']
+  network varchar(255) [not null, note: 'Network label (e.g. ETH_SEPOLIA).']
+  direction varchar(255) [not null, note: 'incoming or outgoing.']
+  asset json [not null, note: 'Asset transferred.']
+  from_address varchar(255) [not null, note: 'Sender address.']
+  to_address varchar(255) [not null, note: 'Recipient address.']
+  amount_raw text [not null, note: 'Amount in smallest unit.']
+  tx_hash varchar(255) [not null, note: 'On-chain transaction hash.']
+  log_index varchar(255) [note: 'ERC-20 log index. Only for webhook events.']
+  nonce varchar(255) [note: 'Transaction nonce. Present for API sends.']
+  block_number varchar(255) [note: 'Block number when mined.']
+  block_hash varchar(255) [note: 'Block hash.']
+  status varchar(255) [not null, note: 'broadcasted, confirmed, failed, or removed.']
+  source varchar(255) [not null, note: 'alchemy_address_activity (webhook) or api_send (our process).']
+  event_key varchar(255) [unique, not null, note: 'Deterministic idempotency key for upserts.']
+  idempotency_key varchar(255) [note: 'Client idempotency key. Only for api_send events.']
+  payload_hash varchar(255) [note: 'Payload hash for retry mismatch detection. Only for api_send events.']
+  error_code varchar(255) [note: 'Failure code. Only for api_send events.']
+  observed_at datetime [note: 'On-chain observation time (block timestamp).']
+  created_at datetime [not null]
+  updated_at datetime [not null]
+
+  indexes {
+    (account_id, idempotency_key) [unique]
+  }
+
+  Note: 'Unified table for all transaction events. source column distinguishes webhook vs API origin.'
+}
+
+Table wallet_account_spend_requests {
+  id varchar(36) [pk, note: 'Spend request identifier.']
+  share_id varchar(36) [not null, ref: > wallet_account_shares.id, note: 'Share authorizing the request.']
+  account_id varchar(36) [not null, ref: > wallet_accounts.id, note: 'Account to spend from.']
+  requester_user_id varchar(36) [not null, ref: > users.id, note: 'Shared user who requested the spend.']
+  policy_ids json [not null, note: 'Snapshot of policy IDs at request time.']
+  asset json [not null, note: 'Asset to send.']
+  to_address varchar(255) [not null, note: 'Recipient address.']
+  amount_raw text [not null, note: 'Amount in smallest unit.']
+  idempotency_key varchar(255) [not null, note: 'Client idempotency key.']
+  payload_hash varchar(255) [not null, note: 'Hash used to reject mismatched retries.']
+  status varchar(255) [not null, note: 'pending, rejected, broadcasted, or failed.']
+  decided_by_user_id varchar(36) [ref: > users.id, note: 'Owner who approved or rejected.']
+  decided_at datetime [note: 'Decision timestamp.']
+  transaction_event_id varchar(36) [ref: > wallet_account_transaction_events.id, note: 'Broadcast transaction event record.']
+  error_code varchar(255) [note: 'Broadcast failure code.']
+  created_at datetime [not null]
+  updated_at datetime [not null]
+
+  indexes {
+    (share_id, idempotency_key) [unique]
+  }
+
+  Note: 'Spend requests from shared users, approved or rejected by account owners.'
+}
+
+Table wallet_account_nonces {
+  account_id varchar(36) [pk, ref: > wallet_accounts.id, note: 'Account this nonce belongs to.']
+  next_nonce int [not null, note: 'Next nonce to use, compared with on-chain pending nonce.']
+
+  Note: 'Tracks next nonce per account for transaction ordering.'
+}

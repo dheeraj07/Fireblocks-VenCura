@@ -1,0 +1,28 @@
+{
+  "name": "fireblock-test",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch apps/api/src/server.ts",
+    "start": "node dist/server.js",
+    "test": "vitest run --config apps/api/vitest.config.ts"
+  },
+  "dependencies": {
+    "argon2": "^0.41.1",
+    "ethers": "^6.15.0",
+    "fastify": "^5.2.1",
+    "jose": "^6.0.10",
+    "mysql2": "^3.11.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.14",
+    "@types/supertest": "^6.0.3",
+    "@testcontainers/mysql": "^10.13.0",
+    "solc": "^0.8.30",
+    "supertest": "^7.0.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.9"
+  }
+}
